@@ -16,6 +16,7 @@
         android:elevation="4dp"
         app:title="@string/app_name"
         app:titleTextColor="@color/on_primary"
+        app:menu="@menu/toolbar_menu"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
@@ -25,7 +26,6 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:padding="16dp"
-        android:text="@string/scanning"
         android:textAlignment="center"
         android:textSize="16sp"
         android:textColor="@color/on_surface"

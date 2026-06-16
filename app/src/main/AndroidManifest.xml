@@ -27,6 +27,13 @@
             </intent-filter>
         </activity>
 
+        <receiver android:name=".UsbPermissionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.sdformatter.app.USB_PERMISSION" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
