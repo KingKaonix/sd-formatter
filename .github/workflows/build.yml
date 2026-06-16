@@ -28,11 +28,14 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Generate Gradle Wrapper
+      - name: Bootstrap Gradle Wrapper
         run: |
-          if [ ! -f gradlew ]; then
-            apt-get update -qq && apt-get install -y -qq gradle 2>/dev/null
-            gradle wrapper --gradle-version 8.5
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Generating Gradle wrapper..."
+            curl -sL "https://services.gradle.org/distributions/gradle-8.5-bin.zip" -o /tmp/gradle.zip
+            unzip -q -d /tmp/gradle /tmp/gradle.zip
+            /tmp/gradle/gradle-8.5/bin/gradle wrapper --gradle-version 8.5
+            rm -rf /tmp/gradle /tmp/gradle.zip
           fi
 
       - name: Cache Gradle
@@ -86,8 +89,7 @@ jobs:
               echo "### Changes since $PREV"
               git log --oneline "$PREV..HEAD" --pretty=format:'- %s'
             else
-              echo "### Changes"
-              git log --oneline --pretty=format:'- %s'
+              echo "### Initial release"
             fi
             echo ""
             echo "CHANGELOG"
