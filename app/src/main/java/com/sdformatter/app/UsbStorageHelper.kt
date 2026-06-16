@@ -26,18 +26,27 @@ class UsbStorageHelper(private val context: Context) {
     private val usbManager: UsbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private val storageManager: StorageManager = context.getSystemService(Context.STORAGE_SERVICE) as StorageManager
 
-    private fun StorageVolume.getVolumePath(): String? {
+    private fun getVolumePath(volume: StorageVolume): String? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            directory?.absolutePath
+            volume.directory?.absolutePath
         } else {
-            @Suppress("DEPRECATION")
-            path
+            try {
+                val getPath = volume.javaClass.getMethod("getPath")
+                getPath.invoke(volume) as? String
+            } catch (e: Exception) {
+                null
+            }
         }
     }
 
     private fun isVolumeMounted(volume: StorageVolume, volPath: String?): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            volume.state == Environment.MEDIA_MOUNTED
+            try {
+                val getState = volume.javaClass.getMethod("getState")
+                (getState.invoke(volume) as? String) == Environment.MEDIA_MOUNTED
+            } catch (e: Exception) {
+                volPath != null
+            }
         } else if (volPath != null) {
             Environment.getExternalStorageState(File(volPath)) == Environment.MEDIA_MOUNTED
         } else {
@@ -51,7 +60,7 @@ class UsbStorageHelper(private val context: Context) {
         val volumes = storageManager.storageVolumes ?: emptyList()
         for (volume in volumes) {
             if (!volume.isRemovable) continue
-            val volPath = volume.getVolumePath()
+            val volPath = getVolumePath(volume)
             if (!isVolumeMounted(volume, volPath)) continue
             if (volPath == null) continue
 
@@ -74,7 +83,6 @@ class UsbStorageHelper(private val context: Context) {
             )
         }
 
-        // Enumerate USB mass storage devices not yet covered
         val usbDeviceMap = usbManager.deviceList ?: emptyMap()
         for ((_, device) in usbDeviceMap) {
             if (!isMassStorageDevice(device)) continue
@@ -109,19 +117,13 @@ class UsbStorageHelper(private val context: Context) {
 
     private fun resolveBlockDevice(mountPath: String): String? {
         return try {
-            val mounts = File("/proc/self/mounts").readLines()
-            for (line in mounts) {
+            for (line in File("/proc/self/mounts").readLines()) {
                 val parts = line.split(" ")
-                if (parts.size >= 2 && parts[1] == mountPath) {
-                    return parts[0]
-                }
+                if (parts.size >= 2 && parts[1] == mountPath) return parts[0]
             }
-            val mounts2 = File("/proc/mounts").readLines()
-            for (line in mounts2) {
+            for (line in File("/proc/mounts").readLines()) {
                 val parts = line.split(" ")
-                if (parts.size >= 2 && parts[1] == mountPath) {
-                    return parts[0]
-                }
+                if (parts.size >= 2 && parts[1] == mountPath) return parts[0]
             }
             null
         } catch (e: Exception) {
@@ -135,13 +137,12 @@ class UsbStorageHelper(private val context: Context) {
             for (line in File("/proc/self/mounts").readLines()) {
                 val parts = line.split(" ")
                 if (parts.size >= 2) {
-                    val mountPath = parts[1]
-                    if (mountPath.contains(expectedName, ignoreCase = true) ||
-                        mountPath.contains("usb", ignoreCase = true) ||
-                        mountPath.contains("otg", ignoreCase = true)) {
-                        if (mountPath.startsWith("/mnt/") || mountPath.startsWith("/storage/")) {
-                            return mountPath
-                        }
+                    val mp = parts[1]
+                    if ((mp.contains(expectedName, ignoreCase = true) ||
+                         mp.contains("usb", ignoreCase = true) ||
+                         mp.contains("otg", ignoreCase = true)) &&
+                        (mp.startsWith("/mnt/") || mp.startsWith("/storage/"))) {
+                        return mp
                     }
                 }
             }
@@ -157,13 +158,12 @@ class UsbStorageHelper(private val context: Context) {
             for (line in File("/proc/self/mounts").readLines()) {
                 val parts = line.split(" ")
                 if (parts.size >= 2) {
-                    val mountPath = parts[1]
-                    if (mountPath.contains(expectedName, ignoreCase = true) ||
-                        mountPath.contains("usb", ignoreCase = true) ||
-                        mountPath.contains("otg", ignoreCase = true)) {
-                        if (mountPath.startsWith("/mnt/") || mountPath.startsWith("/storage/")) {
-                            return parts[0]
-                        }
+                    val mp = parts[1]
+                    if ((mp.contains(expectedName, ignoreCase = true) ||
+                         mp.contains("usb", ignoreCase = true) ||
+                         mp.contains("otg", ignoreCase = true)) &&
+                        (mp.startsWith("/mnt/") || mp.startsWith("/storage/"))) {
+                        return parts[0]
                     }
                 }
             }
@@ -220,7 +220,7 @@ class UsbStorageHelper(private val context: Context) {
     private fun formatWithStorageManager(device: StorageDevice): FormatResult {
         return try {
             val volumes = storageManager.storageVolumes ?: emptyList()
-            val targetVolume = volumes.find { it.getVolumePath() == device.mountPath }
+            val targetVolume = volumes.find { getVolumePath(it) == device.mountPath }
             if (targetVolume != null) {
                 val clazz = targetVolume.javaClass
                 val formatMethod = clazz.getMethod("format", Context::class.java)
