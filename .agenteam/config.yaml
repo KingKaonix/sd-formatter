@@ -1,0 +1,62 @@
+version: "1"
+
+# --- Branch isolation for writing agents ---
+# isolation: branch
+
+# --- Force HOTL execution ---
+# pipeline: hotl
+
+# --- Final verification ---
+final_verify:
+  - "./gradlew test"
+
+# --- Role overrides ---
+roles:
+  dev:
+    model: gpt-5.4-mini
+    can_write: true
+    write_scope:
+      - "app/src/**"
+      - "lib/**"
+
+  qa:
+    model: gpt-5.4-mini
+    can_write: true
+    write_scope:
+      - "app/src/test/**"
+      - "app/src/androidTest/**"
+
+# --- Pipeline stages ---
+pipeline:
+  stages:
+    - name: research
+      roles: [researcher]
+      gate: auto
+
+    - name: strategy
+      roles: [pm]
+      gate: human
+
+    - name: design
+      roles: [architect, pm, researcher]
+      gate: human
+      verify: "test -f docs/designs/*.md"
+
+    - name: plan
+      roles: [dev]
+      gate: human
+
+    - name: implement
+      roles: [dev]
+      gate: auto
+      max_retries: 2
+
+    - name: test
+      roles: [qa]
+      gate: auto
+      max_retries: 1
+      rework_to: implement
+
+    - name: review
+      roles: [reviewer]
+      gate: human

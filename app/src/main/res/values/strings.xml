@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SD Formatter</string>
+    <string name="no_usb_device">No USB storage devices connected</string>
+    <string name="scanning">Scanning for USB devices…</string>
+    <string name="format">Format</string>
+    <string name="format_confirm_title">Format SD Card?</string>
+    <string name="format_confirm_message">This will erase ALL data on %1$s. This cannot be undone.</string>
+    <string name="format_success">Format complete</string>
+    <string name="format_failed">Format failed: %1$s</string>
+    <string name="formatting_in_progress">Formatting…</string>
+    <string name="root_required">Root access required for FAT/FAT32 formatting on this device</string>
+    <string name="device_info">%1$s — %2$s (%3$s)</string>
+    <string name="fat">FAT</string>
+    <string name="fat32">FAT32</string>
+    <string name="select_filesystem">Select filesystem</string>
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
+    <string name="requires_root">Requires root</string>
+    <string name="usb_device_found">USB device found</string>
+    <string name="no_root">Root not available</string>
+</resources>

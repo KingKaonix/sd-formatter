@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+
+# Keystore
+*.keystore
+*.jks
+keystore.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android
+/captures
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.hprof
+
+# AgenTeam run state
+.agenteam/state/
+.agenteam/events/
+.agenteam/reports/
