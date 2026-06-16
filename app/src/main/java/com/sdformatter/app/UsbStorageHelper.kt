@@ -5,6 +5,8 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
+import android.os.Build
+import android.os.Environment
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
 import java.io.File
@@ -24,54 +26,71 @@ class UsbStorageHelper(private val context: Context) {
     private val usbManager: UsbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private val storageManager: StorageManager = context.getSystemService(Context.STORAGE_SERVICE) as StorageManager
 
+    private fun StorageVolume.getVolumePath(): String? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            directory?.absolutePath
+        } else {
+            @Suppress("DEPRECATION")
+            path
+        }
+    }
+
+    private fun isVolumeMounted(volume: StorageVolume, volPath: String?): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            volume.state == Environment.MEDIA_MOUNTED
+        } else if (volPath != null) {
+            Environment.getExternalStorageState(File(volPath)) == Environment.MEDIA_MOUNTED
+        } else {
+            false
+        }
+    }
+
     fun getStorageDevices(): List<StorageDevice> {
         val devices = mutableListOf<StorageDevice>()
 
-        // Approach 1: Use StorageManager volumes
         val volumes = storageManager.storageVolumes ?: emptyList()
         for (volume in volumes) {
-            val path = volume.path
-            val state = volume.state
-            if (volume.isRemovable && state == android.os.Environment.MEDIA_MOUNTED && path != null) {
-                val file = File(path)
-                val total = try {
-                    file.totalSpace
-                } catch (e: Exception) {
-                    0L
-                }
-                devices.add(
-                    StorageDevice(
-                        id = volume.uuid ?: path,
-                        label = volume.getDescription(context),
-                        mountPath = path,
-                        blockDevice = resolveBlockDevice(path),
-                        totalSize = total,
-                        isRemovable = true,
-                        usbDevice = null
-                    )
-                )
+            if (!volume.isRemovable) continue
+            val volPath = volume.getVolumePath()
+            if (!isVolumeMounted(volume, volPath)) continue
+            if (volPath == null) continue
+
+            val file = File(volPath)
+            val total = try {
+                file.totalSpace
+            } catch (e: Exception) {
+                0L
             }
+            devices.add(
+                StorageDevice(
+                    id = volume.uuid ?: volPath,
+                    label = volume.getDescription(context),
+                    mountPath = volPath,
+                    blockDevice = resolveBlockDevice(volPath),
+                    totalSize = total,
+                    isRemovable = true,
+                    usbDevice = null
+                )
+            )
         }
 
-        // Approach 2: Enumerate USB devices for mass storage class
+        // Enumerate USB mass storage devices not yet covered
         val usbDeviceMap = usbManager.deviceList ?: emptyMap()
         for ((_, device) in usbDeviceMap) {
-            if (isMassStorageDevice(device)) {
-                // Check if this volume is already listed via StorageManager
-                val alreadyListed = devices.any { it.label.contains(device.productName ?: "") }
-                if (!alreadyListed) {
-                    devices.add(
-                        StorageDevice(
-                            id = device.deviceName,
-                            label = device.productName ?: "USB Mass Storage",
-                            mountPath = findMountPathForUsb(device),
-                            blockDevice = findBlockDeviceForUsb(device),
-                            totalSize = 0L,
-                            isRemovable = true,
-                            usbDevice = device
-                        )
+            if (!isMassStorageDevice(device)) continue
+            val alreadyListed = devices.any { it.label.contains(device.productName ?: "") }
+            if (!alreadyListed) {
+                devices.add(
+                    StorageDevice(
+                        id = device.deviceName,
+                        label = device.productName ?: "USB Mass Storage",
+                        mountPath = findMountPathForUsb(device),
+                        blockDevice = findBlockDeviceForUsb(device),
+                        totalSize = 0L,
+                        isRemovable = true,
+                        usbDevice = device
                     )
-                }
+                )
             }
         }
 
@@ -90,7 +109,6 @@ class UsbStorageHelper(private val context: Context) {
 
     private fun resolveBlockDevice(mountPath: String): String? {
         return try {
-            // Try to find the block device from /proc/mounts or /proc/self/mounts
             val mounts = File("/proc/self/mounts").readLines()
             for (line in mounts) {
                 val parts = line.split(" ")
@@ -98,7 +116,6 @@ class UsbStorageHelper(private val context: Context) {
                     return parts[0]
                 }
             }
-            // Fallback: try /proc/mounts
             val mounts2 = File("/proc/mounts").readLines()
             for (line in mounts2) {
                 val parts = line.split(" ")
@@ -115,8 +132,7 @@ class UsbStorageHelper(private val context: Context) {
     private fun findMountPathForUsb(device: UsbDevice): String? {
         val expectedName = device.productName ?: return null
         return try {
-            val mounts = File("/proc/self/mounts").readLines()
-            for (line in mounts) {
+            for (line in File("/proc/self/mounts").readLines()) {
                 val parts = line.split(" ")
                 if (parts.size >= 2) {
                     val mountPath = parts[1]
@@ -138,8 +154,7 @@ class UsbStorageHelper(private val context: Context) {
     private fun findBlockDeviceForUsb(device: UsbDevice): String? {
         val expectedName = device.productName ?: return null
         return try {
-            val mounts = File("/proc/self/mounts").readLines()
-            for (line in mounts) {
+            for (line in File("/proc/self/mounts").readLines()) {
                 val parts = line.split(" ")
                 if (parts.size >= 2) {
                     val mountPath = parts[1]
@@ -161,8 +176,7 @@ class UsbStorageHelper(private val context: Context) {
     fun hasRootAccess(): Boolean {
         return try {
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "id"))
-            val reader = process.inputStream.bufferedReader()
-            val output = reader.readText()
+            val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
             output.contains("uid=0")
         } catch (e: Exception) {
@@ -174,7 +188,7 @@ class UsbStorageHelper(private val context: Context) {
         return if (hasRootAccess()) {
             formatWithRoot(device, filesystem)
         } else {
-            formatWithStorageManager(device, filesystem)
+            formatWithStorageManager(device)
         }
     }
 
@@ -182,20 +196,16 @@ class UsbStorageHelper(private val context: Context) {
         val blockDev = device.blockDevice ?: return FormatResult(false, "Block device not found")
         val fatFlags = when (filesystem) {
             "FAT" -> "-F 16"
-            "FAT32" -> "-F 32"
             else -> "-F 32"
         }
 
         return try {
-            // 1. Unmount the volume
             Runtime.getRuntime().exec(arrayOf("su", "-c", "umount", blockDev)).waitFor()
 
-            // 2. Format with mkfs.vfat
             val cmd = "su -c \"mkfs.vfat $fatFlags -I '$blockDev'\""
             val process = Runtime.getRuntime().exec(cmd)
             val exitCode = process.waitFor()
 
-            // 3. Remount (user may need to reconnect)
             if (exitCode == 0) {
                 FormatResult(true, "Format successful")
             } else {
@@ -207,12 +217,11 @@ class UsbStorageHelper(private val context: Context) {
         }
     }
 
-    private fun formatWithStorageManager(device: StorageDevice, filesystem: String): FormatResult {
+    private fun formatWithStorageManager(device: StorageDevice): FormatResult {
         return try {
             val volumes = storageManager.storageVolumes ?: emptyList()
-            val targetVolume = volumes.find { it.path == device.mountPath }
+            val targetVolume = volumes.find { it.getVolumePath() == device.mountPath }
             if (targetVolume != null) {
-                // StorageVolume.format() formats to device default, not specific FS
                 val clazz = targetVolume.javaClass
                 val formatMethod = clazz.getMethod("format", Context::class.java)
                 formatMethod.invoke(targetVolume, context)
