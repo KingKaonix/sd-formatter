@@ -24,9 +24,6 @@ import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import rikka.shizuku.Shizuku
-
-private const val SHIZUKU_PERMISSION_REQUEST = 1001
 
 class MainActivity : AppCompatActivity() {
 
@@ -39,6 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var usbManager: UsbManager
 
     private var shizukuAvailable = false
+    private var shizukuRootMode = false
 
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -54,19 +52,6 @@ class MainActivity : AppCompatActivity() {
                     refreshDevices()
                 }
             }
-        }
-    }
-
-    private val shizukuBinderReceiver = object : Shizuku.OnBinderReceivedListener {
-        override fun onBinderReceived() {
-            shizukuAvailable = shizukuHelper.isAvailable
-            if (!shizukuHelper.hasPermission) {
-                shizukuHelper.requestPermission(SHIZUKU_PERMISSION_REQUEST)
-            }
-        }
-
-        override fun onBinderDead() {
-            shizukuAvailable = false
         }
     }
 
@@ -93,7 +78,6 @@ class MainActivity : AppCompatActivity() {
         deviceList.layoutManager = LinearLayoutManager(this)
         deviceList.adapter = adapter
 
-        // USB plug/unplug events
         val filter = IntentFilter().apply {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
@@ -105,14 +89,18 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(usbReceiver, filter)
         }
 
-        // Shizuku binder listener
-        Shizuku.addBinderReceivedListener(shizukuBinderReceiver)
-        shizukuAvailable = shizukuHelper.isAvailable
-        if (shizukuAvailable && !shizukuHelper.hasPermission) {
-            shizukuHelper.requestPermission(SHIZUKU_PERMISSION_REQUEST)
-        }
-
+        checkShizuku()
         refreshDevices()
+    }
+
+    private fun checkShizuku() {
+        lifecycleScope.launch {
+            val (avail, root) = withContext(Dispatchers.IO) {
+                shizukuHelper.isAvailable to shizukuHelper.isRootMode
+            }
+            shizukuAvailable = avail
+            shizukuRootMode = root
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -133,12 +121,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(usbReceiver) } catch (_: Exception) { }
-        Shizuku.removeBinderReceivedListener(shizukuBinderReceiver)
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // Shizuku permission result handled internally
     }
 
     private fun requestUsbPermission(device: UsbDevice) {
@@ -151,19 +133,25 @@ class MainActivity : AppCompatActivity() {
             statusText.text = "Scanning..."
             statusText.visibility = View.VISIBLE
 
-            val result = withContext(Dispatchers.IO) {
-                usbHelper.getStorageDevices()
+            val (devices, shizukuOk, shizukuRoot) = withContext(Dispatchers.IO) {
+                Triple(
+                    usbHelper.getStorageDevices(),
+                    shizukuHelper.isAvailable,
+                    shizukuHelper.isRootMode
+                )
             }
+            shizukuAvailable = shizukuOk
+            shizukuRootMode = shizukuRoot
 
             statusText.visibility = View.GONE
 
-            if (result.isEmpty()) {
+            if (devices.isEmpty()) {
                 deviceList.visibility = View.GONE
                 emptyView.visibility = View.VISIBLE
             } else {
                 emptyView.visibility = View.GONE
                 deviceList.visibility = View.VISIBLE
-                adapter.submitList(result)
+                adapter.submitList(devices)
             }
         }
     }
@@ -184,22 +172,22 @@ class MainActivity : AppCompatActivity() {
         val items = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
 
-        // Non-root options (always available if mounted)
+        // Non-root options
         if (isMounted) {
             items.add("Quick wipe — delete all files (no root)")
             actions.add { performWipe(device) }
 
-            items.add("Try system format — Android built-in formatter (no root)")
+            items.add("Try system format (no root)")
             actions.add { performSystemFormat(device) }
         }
 
         // Shizuku options
         if (shizukuAvailable) {
-            val label = shizukuHelper.modeLabel
-            items.add("Format via $label")
+            val mode = if (shizukuRootMode) "root" else "ADB"
+            items.add("Format via Shizuku ($mode)")
             actions.add { performShizukuFormat(device) }
 
-            if (shizukuHelper.isRootMode && device.blockDevice != null) {
+            if (shizukuRootMode && device.blockDevice != null) {
                 items.add("Shizuku: format to FAT32")
                 actions.add { performShizukuMkfs(device, "FAT32") }
                 items.add("Shizuku: format to FAT")
@@ -207,7 +195,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Root options
+        // Direct root options
         if (hasRoot) {
             items.add("Root: format to FAT32")
             actions.add { performRootFormat(device, "FAT32") }
@@ -219,15 +207,14 @@ class MainActivity : AppCompatActivity() {
             MaterialAlertDialogBuilder(this)
                 .setTitle(device.label)
                 .setMessage(
-                    if (!isMounted) "Volume is not mounted. Try reconnecting the device."
-                    else "No format options available."
+                    if (!isMounted) "Volume is not mounted. Try reconnecting."
+                    else "No format options available for this device."
                 )
                 .setPositiveButton("OK", null)
                 .show()
             return
         }
 
-        // Build device info for the dialog subtitle
         val infoLine = buildString {
             append("${device.label}  ·  ${formatSize(device.totalSize)}")
             device.filesystem?.let { append("  ·  $it") }
@@ -289,7 +276,7 @@ class MainActivity : AppCompatActivity() {
             val pos = adapter.positionForDevice(device)
             adapter.setFormatStatus(pos, "Shizuku: formatting...")
 
-            val result = if (shizukuHelper.isRootMode && device.blockDevice != null) {
+            val result = if (shizukuRootMode && device.blockDevice != null) {
                 withContext(Dispatchers.IO) {
                     shizukuHelper.formatWithMkfs(device.blockDevice, "FAT32")
                 }
