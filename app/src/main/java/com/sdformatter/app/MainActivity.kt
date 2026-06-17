@@ -24,6 +24,9 @@ import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import rikka.shizuku.Shizuku
+
+private const val SHIZUKU_PERMISSION_REQUEST = 1001
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,7 +35,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyView: TextView
     private lateinit var adapter: DeviceAdapter
     private lateinit var usbHelper: UsbStorageHelper
+    private lateinit var shizukuHelper: ShizukuFormatHelper
     private lateinit var usbManager: UsbManager
+
+    private var shizukuAvailable = false
 
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -51,6 +57,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val shizukuBinderReceiver = object : Shizuku.OnBinderReceivedListener {
+        override fun onBinderReceived() {
+            shizukuAvailable = shizukuHelper.isAvailable
+            if (!shizukuHelper.hasPermission) {
+                shizukuHelper.requestPermission(SHIZUKU_PERMISSION_REQUEST)
+            }
+        }
+
+        override fun onBinderDead() {
+            shizukuAvailable = false
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -65,6 +84,7 @@ class MainActivity : AppCompatActivity() {
 
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         usbHelper = UsbStorageHelper(this)
+        shizukuHelper = ShizukuFormatHelper(this)
 
         adapter = DeviceAdapter(
             onFormatClick = { device -> showFormatDialog(device) },
@@ -73,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         deviceList.layoutManager = LinearLayoutManager(this)
         deviceList.adapter = adapter
 
+        // USB plug/unplug events
         val filter = IntentFilter().apply {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
@@ -82,6 +103,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             @Suppress("DEPRECATION")
             registerReceiver(usbReceiver, filter)
+        }
+
+        // Shizuku binder listener
+        Shizuku.addBinderReceivedListener(shizukuBinderReceiver)
+        shizukuAvailable = shizukuHelper.isAvailable
+        if (shizukuAvailable && !shizukuHelper.hasPermission) {
+            shizukuHelper.requestPermission(SHIZUKU_PERMISSION_REQUEST)
         }
 
         refreshDevices()
@@ -105,6 +133,12 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         try { unregisterReceiver(usbReceiver) } catch (_: Exception) { }
+        Shizuku.removeBinderReceivedListener(shizukuBinderReceiver)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // Shizuku permission result handled internally
     }
 
     private fun requestUsbPermission(device: UsbDevice) {
@@ -135,7 +169,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showFormatDialog(device: StorageDevice) {
-        // Check USB permission first if this is a raw USB device
         val usbDev = device.usbDevice
         if (usbDev != null && !usbManager.hasPermission(usbDev)) {
             requestUsbPermission(usbDev)
@@ -148,62 +181,76 @@ class MainActivity : AppCompatActivity() {
         val hasRoot = usbHelper.hasRootAccess()
         val isMounted = device.mountPath != null
 
-        // Build the dialog content
         val items = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
 
+        // Non-root options (always available if mounted)
         if (isMounted) {
-            items.add("Quick wipe — delete all files (no root, preserves filesystem)")
+            items.add("Quick wipe — delete all files (no root)")
             actions.add { performWipe(device) }
 
-            items.add("Try system format — uses Android's built-in formatter (no root)")
+            items.add("Try system format — Android built-in formatter (no root)")
             actions.add { performSystemFormat(device) }
         }
 
+        // Shizuku options
+        if (shizukuAvailable) {
+            val label = shizukuHelper.modeLabel
+            items.add("Format via $label")
+            actions.add { performShizukuFormat(device) }
+
+            if (shizukuHelper.isRootMode && device.blockDevice != null) {
+                items.add("Shizuku: format to FAT32")
+                actions.add { performShizukuMkfs(device, "FAT32") }
+                items.add("Shizuku: format to FAT")
+                actions.add { performShizukuMkfs(device, "FAT") }
+            }
+        }
+
+        // Root options
         if (hasRoot) {
-            items.add("Full format to FAT32 — requires root")
+            items.add("Root: format to FAT32")
             actions.add { performRootFormat(device, "FAT32") }
-            items.add("Full format to FAT — requires root")
+            items.add("Root: format to FAT")
             actions.add { performRootFormat(device, "FAT") }
         }
 
         if (items.isEmpty()) {
-            // No action possible
             MaterialAlertDialogBuilder(this)
                 .setTitle(device.label)
                 .setMessage(
                     if (!isMounted) "Volume is not mounted. Try reconnecting the device."
-                    else "No format options available for this device."
+                    else "No format options available."
                 )
                 .setPositiveButton("OK", null)
                 .show()
             return
         }
 
-        // Show single-item as direct action, multiple as chooser
+        // Build device info for the dialog subtitle
+        val infoLine = buildString {
+            append("${device.label}  ·  ${formatSize(device.totalSize)}")
+            device.filesystem?.let { append("  ·  $it") }
+        }
+
         if (items.size == 1) {
-            val msg = buildString {
-                appendLine("Device: ${device.label}")
-                appendLine("Size: ${formatSize(device.totalSize)}")
-                if (device.filesystem != null) appendLine("Current filesystem: ${device.filesystem}")
-                if (isMounted) appendLine("Mounted at: ${device.mountPath}")
-                appendLine()
-                append(items[0])
-            }
             MaterialAlertDialogBuilder(this)
-                .setTitle("Format ${device.label}?")
-                .setMessage(msg)
+                .setTitle("Format?")
+                .setMessage("$infoLine\n\n${items[0]}")
                 .setPositiveButton("Continue") { _, _ -> actions[0]() }
                 .setNegativeButton("Cancel", null)
                 .show()
         } else {
             MaterialAlertDialogBuilder(this)
                 .setTitle("Format ${device.label}")
+                .setMessage(infoLine)
                 .setItems(items.toTypedArray()) { _, which -> actions[which]() }
                 .setNegativeButton("Cancel", null)
                 .show()
         }
     }
+
+    // ─── format actions ──────────────────────────────────────────
 
     private fun performWipe(device: StorageDevice) {
         lifecycleScope.launch {
@@ -214,8 +261,7 @@ class MainActivity : AppCompatActivity() {
             }
             adapter.setFormatStatus(pos, null)
             Snackbar.make(findViewById(android.R.id.content),
-                result?.message ?: "Wipe completed",
-                Snackbar.LENGTH_LONG).show()
+                result?.message ?: "Wipe completed", Snackbar.LENGTH_LONG).show()
             refreshDevices()
         }
     }
@@ -224,21 +270,56 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val pos = adapter.positionForDevice(device)
             adapter.setFormatStatus(pos, "Requesting system format...")
-
             val result = withContext(Dispatchers.IO) {
                 usbHelper.formatWithoutRoot(device)
             }
-
             adapter.setFormatStatus(pos, null)
-
             if (result != null && result.success) {
-                Snackbar.make(findViewById(android.R.id.content),
-                    result.message, Snackbar.LENGTH_LONG).show()
+                Snackbar.make(findViewById(android.R.id.content), result.message, Snackbar.LENGTH_LONG).show()
             } else {
                 Snackbar.make(findViewById(android.R.id.content),
-                    "System format unavailable. Try quick wipe instead.",
-                    Snackbar.LENGTH_LONG).show()
+                    "System format unavailable. Try quick wipe instead.", Snackbar.LENGTH_LONG).show()
             }
+            refreshDevices()
+        }
+    }
+
+    private fun performShizukuFormat(device: StorageDevice) {
+        lifecycleScope.launch {
+            val pos = adapter.positionForDevice(device)
+            adapter.setFormatStatus(pos, "Shizuku: formatting...")
+
+            val result = if (shizukuHelper.isRootMode && device.blockDevice != null) {
+                withContext(Dispatchers.IO) {
+                    shizukuHelper.formatWithMkfs(device.blockDevice, "FAT32")
+                }
+            } else if (device.mountPath != null) {
+                withContext(Dispatchers.IO) {
+                    val volId = shizukuHelper.resolveVolumeId(device.mountPath)
+                    if (volId != null) shizukuHelper.formatVolume(volId)
+                    else FormatResult(false, "Could not resolve volume ID")
+                }
+            } else {
+                FormatResult(false, "Volume not mounted")
+            }
+
+            adapter.setFormatStatus(pos, null)
+            Snackbar.make(findViewById(android.R.id.content),
+                result.message, Snackbar.LENGTH_LONG).show()
+            refreshDevices()
+        }
+    }
+
+    private fun performShizukuMkfs(device: StorageDevice, fs: String) {
+        lifecycleScope.launch {
+            val pos = adapter.positionForDevice(device)
+            adapter.setFormatStatus(pos, "Shizuku: formatting to $fs...")
+            val result = withContext(Dispatchers.IO) {
+                shizukuHelper.formatWithMkfs(device.blockDevice ?: "", fs)
+            }
+            adapter.setFormatStatus(pos, null)
+            Snackbar.make(findViewById(android.R.id.content),
+                result.message, Snackbar.LENGTH_LONG).show()
             refreshDevices()
         }
     }
@@ -246,11 +327,7 @@ class MainActivity : AppCompatActivity() {
     private fun performRootFormat(device: StorageDevice, fs: String) {
         MaterialAlertDialogBuilder(this)
             .setTitle("Format to $fs?")
-            .setMessage(
-                "Device: ${device.label}\n" +
-                "Filesystem: $fs\n\n" +
-                "ALL DATA will be erased. This cannot be undone."
-            )
+            .setMessage("Device: ${device.label}\nFilesystem: $fs\n\nALL DATA will be erased.")
             .setPositiveButton("Format") { _, _ ->
                 lifecycleScope.launch {
                     val pos = adapter.positionForDevice(device)
@@ -305,8 +382,8 @@ class MainActivity : AppCompatActivity() {
                 append(formatSize(device.totalSize))
                 if (device.mountPath != null) append(" · Mounted")
                 else append(" · Unmounted")
-                if (device.usbDevice != null) append(" · USB device")
                 device.filesystem?.let { append(" · $it") }
+                if (shizukuAvailable) append(" · S")
             }
 
             val status = formatStatuses[pos]
@@ -331,8 +408,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        @JvmStatic
-        fun onUsbPermissionGranted(device: UsbDevice) {}
+        @JvmStatic fun onUsbPermissionGranted(device: UsbDevice) {}
     }
 
     private fun formatSize(bytes: Long): String {
