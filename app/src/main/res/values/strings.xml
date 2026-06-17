@@ -6,4 +6,7 @@
     <string name="format">Format</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
+    <string name="select_filesystem">Select filesystem</string>
+    <string name="fat">FAT</string>
+    <string name="fat32">FAT32</string>
 </resources>
