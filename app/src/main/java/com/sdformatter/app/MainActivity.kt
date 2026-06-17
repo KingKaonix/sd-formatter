@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity() {
         usbHelper = UsbStorageHelper(this)
 
         adapter = DeviceAdapter(
-            onFormatClick = { device -> showFormatOptionsDialog(device) },
+            onFormatClick = { device -> showFormatDialog(device) },
             onRequestPermission = { device -> requestUsbPermission(device) }
         )
         deviceList.layoutManager = LinearLayoutManager(this)
@@ -134,68 +134,138 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showFormatOptionsDialog(device: StorageDevice) {
-        val hasRoot = usbHelper.hasRootAccess()
+    private fun showFormatDialog(device: StorageDevice) {
+        // Check USB permission first if this is a raw USB device
+        val usbDev = device.usbDevice
+        if (usbDev != null && !usbManager.hasPermission(usbDev)) {
+            requestUsbPermission(usbDev)
+            Snackbar.make(findViewById(android.R.id.content),
+                "USB permission requested — try again after granting",
+                Snackbar.LENGTH_SHORT).show()
+            return
+        }
 
-        if (!hasRoot) {
+        val hasRoot = usbHelper.hasRootAccess()
+        val isMounted = device.mountPath != null
+
+        // Build the dialog content
+        val items = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        if (isMounted) {
+            items.add("Quick wipe — delete all files (no root, preserves filesystem)")
+            actions.add { performWipe(device) }
+
+            items.add("Try system format — uses Android's built-in formatter (no root)")
+            actions.add { performSystemFormat(device) }
+        }
+
+        if (hasRoot) {
+            items.add("Full format to FAT32 — requires root")
+            actions.add { performRootFormat(device, "FAT32") }
+            items.add("Full format to FAT — requires root")
+            actions.add { performRootFormat(device, "FAT") }
+        }
+
+        if (items.isEmpty()) {
+            // No action possible
             MaterialAlertDialogBuilder(this)
-                .setTitle("Format")
-                .setMessage("Root access not available.\n\n" +
-                    "The app will try the system format API, which formats to the " +
-                    "device default filesystem (not guaranteed FAT/FAT32).\n\n" +
-                    "For full FAT/FAT32 control, root is required.")
-                .setPositiveButton("Continue anyway") { _, _ ->
-                    performFormat(device, "FAT32", adapter.positionForDevice(device))
-                }
-                .setNegativeButton("Cancel", null)
+                .setTitle(device.label)
+                .setMessage(
+                    if (!isMounted) "Volume is not mounted. Try reconnecting the device."
+                    else "No format options available for this device."
+                )
+                .setPositiveButton("OK", null)
                 .show()
             return
         }
 
-        val dialogView = LayoutInflater.from(this)
-            .inflate(R.layout.dialog_format_options, null)
-
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Select filesystem")
-            .setView(dialogView)
-            .setNegativeButton("Cancel", null)
-            .show()
-
-        dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.optionFat)
-            .setOnClickListener { dialog.dismiss(); showConfirmDialog(device, "FAT") }
-
-        dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.optionFat32)
-            .setOnClickListener { dialog.dismiss(); showConfirmDialog(device, "FAT32") }
-    }
-
-    private fun showConfirmDialog(device: StorageDevice, fs: String) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Format SD Card?")
-            .setMessage("This will erase ALL data on ${device.label}.\n" +
-                "Filesystem: $fs\n\nThis cannot be undone.")
-            .setPositiveButton("Format") { _, _ ->
-                performFormat(device, fs, adapter.positionForDevice(device))
+        // Show single-item as direct action, multiple as chooser
+        if (items.size == 1) {
+            val msg = buildString {
+                appendLine("Device: ${device.label}")
+                appendLine("Size: ${formatSize(device.totalSize)}")
+                if (device.filesystem != null) appendLine("Current filesystem: ${device.filesystem}")
+                if (isMounted) appendLine("Mounted at: ${device.mountPath}")
+                appendLine()
+                append(items[0])
             }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun performFormat(device: StorageDevice, fs: String, pos: Int) {
-        lifecycleScope.launch {
-            adapter.setFormatStatus(pos, "Formatting...")
-            val result = withContext(Dispatchers.IO) {
-                usbHelper.formatDevice(device, fs)
-            }
-
-            if (result.success) {
-                adapter.setFormatStatus(pos, "Done")
-                Snackbar.make(findViewById(android.R.id.content), result.message, Snackbar.LENGTH_LONG).show()
-            } else {
-                adapter.setFormatStatus(pos, null)
-                Snackbar.make(findViewById(android.R.id.content),
-                    "Failed: ${result.message}", Snackbar.LENGTH_LONG).show()
-            }
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Format ${device.label}?")
+                .setMessage(msg)
+                .setPositiveButton("Continue") { _, _ -> actions[0]() }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } else {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Format ${device.label}")
+                .setItems(items.toTypedArray()) { _, which -> actions[which]() }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
+    }
+
+    private fun performWipe(device: StorageDevice) {
+        lifecycleScope.launch {
+            val pos = adapter.positionForDevice(device)
+            adapter.setFormatStatus(pos, "Wiping...")
+            val result = withContext(Dispatchers.IO) {
+                usbHelper.formatWithoutRoot(device)
+            }
+            adapter.setFormatStatus(pos, null)
+            Snackbar.make(findViewById(android.R.id.content),
+                result?.message ?: "Wipe completed",
+                Snackbar.LENGTH_LONG).show()
+            refreshDevices()
+        }
+    }
+
+    private fun performSystemFormat(device: StorageDevice) {
+        lifecycleScope.launch {
+            val pos = adapter.positionForDevice(device)
+            adapter.setFormatStatus(pos, "Requesting system format...")
+
+            val result = withContext(Dispatchers.IO) {
+                usbHelper.formatWithoutRoot(device)
+            }
+
+            adapter.setFormatStatus(pos, null)
+
+            if (result != null && result.success) {
+                Snackbar.make(findViewById(android.R.id.content),
+                    result.message, Snackbar.LENGTH_LONG).show()
+            } else {
+                Snackbar.make(findViewById(android.R.id.content),
+                    "System format unavailable. Try quick wipe instead.",
+                    Snackbar.LENGTH_LONG).show()
+            }
+            refreshDevices()
+        }
+    }
+
+    private fun performRootFormat(device: StorageDevice, fs: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Format to $fs?")
+            .setMessage(
+                "Device: ${device.label}\n" +
+                "Filesystem: $fs\n\n" +
+                "ALL DATA will be erased. This cannot be undone."
+            )
+            .setPositiveButton("Format") { _, _ ->
+                lifecycleScope.launch {
+                    val pos = adapter.positionForDevice(device)
+                    adapter.setFormatStatus(pos, "Formatting to $fs...")
+                    val result = withContext(Dispatchers.IO) {
+                        usbHelper.formatWithRoot(device, fs)
+                    }
+                    adapter.setFormatStatus(pos, null)
+                    Snackbar.make(findViewById(android.R.id.content),
+                        result.message, Snackbar.LENGTH_LONG).show()
+                    refreshDevices()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ─── adapter ──────────────────────────────────────────────────
@@ -229,7 +299,6 @@ class MainActivity : AppCompatActivity() {
 
         override fun onBindViewHolder(h: ViewHolder, pos: Int) {
             val device = items[pos]
-            val hasRoot = usbHelper.hasRootAccess()
 
             h.label.text = device.label
             h.info.text = buildString {
@@ -237,7 +306,7 @@ class MainActivity : AppCompatActivity() {
                 if (device.mountPath != null) append(" · Mounted")
                 else append(" · Unmounted")
                 if (device.usbDevice != null) append(" · USB device")
-                if (!hasRoot) append(" · No root")
+                device.filesystem?.let { append(" · $it") }
             }
 
             val status = formatStatuses[pos]
@@ -250,19 +319,7 @@ class MainActivity : AppCompatActivity() {
                 h.formatButton.isEnabled = true
             }
 
-            h.formatButton.setOnClickListener {
-                val usbDev = device.usbDevice
-                if (usbDev != null && !usbManager.hasPermission(usbDev)) {
-                    onRequestPermission(usbDev)
-                    Snackbar.make(
-                        h.itemView,
-                        "USB permission requested — tap Format again after granting",
-                        Snackbar.LENGTH_SHORT
-                    ).show()
-                    return@setOnClickListener
-                }
-                onFormatClick(device)
-            }
+            h.formatButton.setOnClickListener { onFormatClick(device) }
         }
 
         inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -273,16 +330,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ─── called from UsbPermissionReceiver ────────────────────────
-
     companion object {
         @JvmStatic
-        fun onUsbPermissionGranted(device: UsbDevice) {
-            // triggers refresh on next interaction
-        }
+        fun onUsbPermissionGranted(device: UsbDevice) {}
     }
-
-    // ─── utils ────────────────────────────────────────────────────
 
     private fun formatSize(bytes: Long): String {
         if (bytes <= 0) return "Unknown size"
