@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp">
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/optionWipe"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginBottom="8dp"
+        android:gravity="center_vertical|start"
+        android:paddingHorizontal="20dp"
+        android:text="Quick Wipe"
+        android:textSize="15sp"
+        app:icon="@drawable/ic_format"
+        app:iconSize="20dp"
+        app:iconGravity="textStart"
+        app:iconTint="@color/on_surface_variant"
+        app:backgroundTint="@color/surface_variant"
+        app:cornerRadius="12dp"
+        app:strokeColor="@color/outline"
+        app:strokeWidth="1dp"
+        app:shapeAppearance="@style/ShapeAppearance.SDFormatter.Medium" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="-4dp"
+        android:layout_marginBottom="16dp"
+        android:text="Delete all files · Filesystem preserved · No permissions needed"
+        android:textSize="12sp"
+        android:textColor="@color/on_surface_dim"
+        android:fontFamily="sans-serif" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/optionAdb"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginBottom="8dp"
+        android:gravity="center_vertical|start"
+        android:paddingHorizontal="20dp"
+        android:text="Format via ADB Shell"
+        android:textSize="15sp"
+        app:icon="@drawable/ic_sd_card"
+        app:iconSize="20dp"
+        app:iconGravity="textStart"
+        app:iconTint="@color/primary"
+        app:backgroundTint="@color/primary_container"
+        app:cornerRadius="12dp"
+        app:strokeColor="@color/primary_variant"
+        app:strokeWidth="1dp"
+        app:shapeAppearance="@style/ShapeAppearance.SDFormatter.Medium" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="-4dp"
+        android:text="Format to FAT/FAT32 · Wireless Debugging · One-time pairing code"
+        android:textSize="12sp"
+        android:textColor="@color/on_surface_dim"
+        android:fontFamily="sans-serif" />
+
+</LinearLayout>

@@ -1,12 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#1B5E20</color>
-    <color name="primary_variant">#2E7D32</color>
-    <color name="on_primary">#FFFFFF</color>
-    <color name="secondary">#FF6F00</color>
-    <color name="secondary_variant">#FF8F00</color>
-    <color name="on_secondary">#FFFFFF</color>
-    <color name="warning">#D32F2F</color>
-    <color name="surface">#F5F5F5</color>
-    <color name="on_surface">#212121</color>
+    <!-- Dark theme primaries -->
+    <color name="primary">#81C784</color>
+    <color name="primary_variant">#4CAF50</color>
+    <color name="primary_container">#2E7D3220</color>
+    <color name="on_primary">#1B1B2F</color>
+
+    <!-- Secondary - warm amber for format actions -->
+    <color name="secondary">#FFB74D</color>
+    <color name="secondary_variant">#FFA726</color>
+    <color name="secondary_container">#FF8F0020</color>
+    <color name="on_secondary">#1B1B2F</color>
+
+    <!-- Tertiary - cyan for technical/status info -->
+    <color name="tertiary">#4DD0E1</color>
+    <color name="tertiary_container">#0097A720</color>
+
+    <!-- Error -->
+    <color name="error">#EF5350</color>
+    <color name="error_container">#C6282820</color>
+    <color name="on_error">#1B1B2F</color>
+
+    <!-- Surfaces -->
+    <color name="surface">#1E1E2E</color>
+    <color name="surface_variant">#2A2A3E</color>
+    <color name="surface_container">#252538</color>
+    <color name="surface_container_high">#2E2E42</color>
+    <color name="background">#16162A</color>
+    <color name="on_surface">#E8E8F0</color>
+    <color name="on_surface_variant">#A8A8BC</color>
+    <color name="on_surface_dim">#6B6B80</color>
+
+    <!-- Outline -->
+    <color name="outline">#3E3E56</color>
+    <color name="outline_variant">#2E2E46</color>
+
+    <!-- Storage usage colors -->
+    <color name="storage_used">#81C784</color>
+    <color name="storage_free">#2E7D3260</color>
+    <color name="storage_warning">#FFB74D</color>
+    <color name="storage_critical">#EF5350</color>
+
+    <!-- Status colors -->
+    <color name="status_mounted">#81C784</color>
+    <color name="status_unmounted">#6B6B80</color>
+    <color name="formatting">#4DD0E1</color>
+
+    <!-- Format option backgrounds -->
+    <color name="format_wipe_bg">#252538</color>
+    <color name="format_adb_bg">#1B5E2020</color>
 </resources>

@@ -5,62 +5,139 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:layout_marginHorizontal="16dp"
     android:layout_marginBottom="12dp"
-    app:cardElevation="2dp"
-    app:strokeWidth="0dp"
-    app:contentPadding="16dp">
+    style="@style/CardStyle">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
+        android:layout_height="wrap_content"
+        android:padding="16dp">
 
+        <!-- Device icon -->
+        <ImageView
+            android:id="@+id/deviceIcon"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="12dp"
+            android:importantForAccessibility="no"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="@id/deviceLabel"
+            app:tint="@color/primary"
+            app:srcCompat="@drawable/ic_sd_card" />
+
+        <!-- Device name -->
         <TextView
             android:id="@+id/deviceLabel"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:textSize="18sp"
-            android:textStyle="bold"
+            android:textSize="16sp"
             android:textColor="@color/on_surface"
+            android:fontFamily="sans-serif-medium"
+            android:lines="1"
+            android:ellipsize="end"
             app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintStart_toEndOf="@id/deviceIcon"
             app:layout_constraintEnd_toEndOf="parent"
             tools:text="SD Card via USB" />
 
+        <!-- Mount status badge -->
+        <TextView
+            android:id="@+id/statusBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="20dp"
+            android:paddingHorizontal="8dp"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:includeFontPadding="false"
+            app:layout_constraintTop_toBottomOf="@id/deviceLabel"
+            app:layout_constraintStart_toEndOf="@id/deviceIcon"
+            app:layout_constraintBottom_toTopOf="@id/storageBar"
+            tools:text="MOUNTED"
+            tools:background="@color/status_mounted" />
+
+        <!-- Storage info text -->
         <TextView
             android:id="@+id/deviceInfo"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textSize="14sp"
-            android:textColor="#757575"
+            android:textSize="13sp"
+            android:textColor="@color/on_surface_variant"
+            android:lines="1"
             app:layout_constraintTop_toBottomOf="@id/deviceLabel"
-            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintStart_toEndOf="@id/statusBadge"
             app:layout_constraintEnd_toEndOf="parent"
-            tools:text="64 GB / FAT32" />
+            app:layout_constraintBottom_toTopOf="@id/storageBar"
+            tools:text="64 GB · FAT32" />
 
-        <Button
-            android:id="@+id/formatButton"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
+        <!-- Storage usage bar -->
+        <View
+            android:id="@+id/storageBar"
+            android:layout_width="0dp"
+            android:layout_height="4dp"
             android:layout_marginTop="12dp"
-            android:backgroundTint="@color/warning"
-            android:text="@string/format"
-            android:textColor="@color/on_primary"
-            app:layout_constraintTop_toBottomOf="@id/deviceInfo"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/storage_bar_bg"
+            app:layout_constraintTop_toBottomOf="@id/statusBadge"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
 
+        <View
+            android:id="@+id/storageBarUsed"
+            android:layout_width="0dp"
+            android:layout_height="4dp"
+            android:background="@drawable/storage_bar_used"
+            app:layout_constraintTop_toBottomOf="@id/statusBadge"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <!-- Size label -->
+        <TextView
+            android:id="@+id/sizeLabel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="@color/on_surface_dim"
+            app:layout_constraintTop_toBottomOf="@id/storageBar"
+            app:layout_constraintStart_toStartOf="parent"
+            tools:text="12.4 GB used · 51.6 GB free" />
+
+        <!-- Format button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/formatButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="0dp"
+            android:paddingHorizontal="16dp"
+            android:text="@string/format"
+            android:textSize="13sp"
+            android:textColor="@color/error"
+            app:icon="@drawable/ic_format"
+            app:iconGravity="textStart"
+            app:iconSize="16dp"
+            app:cornerRadius="18dp"
+            app:backgroundTint="@color/error_container"
+            app:layout_constraintTop_toBottomOf="@id/storageBar"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+        <!-- Format status -->
         <TextView
             android:id="@+id/formatStatus"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textAlignment="center"
+            android:textColor="@color/formatting"
+            android:fontFamily="sans-serif-medium"
             android:visibility="gone"
-            app:layout_constraintTop_toBottomOf="@id/formatButton"
+            app:layout_constraintTop_toBottomOf="@id/storageBar"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
             tools:text="Formatting..."
             tools:visibility="visible" />
 

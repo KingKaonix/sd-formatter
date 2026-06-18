@@ -4,12 +4,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
-import android.text.InputType
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -17,14 +19,21 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -32,7 +41,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var deviceList: RecyclerView
-    private lateinit var emptyView: TextView
+    private lateinit var emptyView: View
     private lateinit var adapter: DeviceAdapter
     private lateinit var usbHelper: UsbStorageHelper
     private lateinit var shizukuHelper: ShizukuFormatHelper
@@ -134,7 +143,10 @@ class MainActivity : AppCompatActivity() {
                 emptyView.visibility = View.GONE
                 deviceList.visibility = View.VISIBLE
                 val mounted = devices.count { it.mountPath != null }
-                statusText.text = "${devices.size} device(s) found, $mounted mounted"
+                statusText.text = if (mounted == devices.size)
+                    "${devices.size} device(s) · All mounted"
+                else
+                    "${devices.size} device(s) · $mounted mounted"
             }
         }
     }
@@ -142,25 +154,28 @@ class MainActivity : AppCompatActivity() {
     // ─── format dialog ─────────────────────────────────────────────
 
     private fun showFormatDialog(device: StorageDevice) {
-        val options = mutableListOf<String>()
-        options.add("Quick Wipe (delete all files, no special permissions)")
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_format_options, null)
 
+        val wipeBtn = dialogView.findViewById<MaterialButton>(R.id.optionWipe)
+        val adbBtn = dialogView.findViewById<MaterialButton>(R.id.optionAdb)
+
+        // Configure wipe option
         val hasAdb = adbReady || shizukuHelper.extractAdb()
-        if (hasAdb) {
-            options.add("Format via ADB Shell (requires Wireless Debugging)")
-        } else {
-            options.add("Format via ADB Shell (install adb first)")
+        adbBtn.isEnabled = hasAdb
+
+        wipeBtn.setOnClickListener {
+            performQuickWipe(device)
+            (dialogView.parent as? ViewGroup)?.removeView(dialogView)
         }
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Format: ${device.label}")
-            .setItems(options.toTypedArray()) { _, which ->
-                when (which) {
-                    0 -> performQuickWipe(device)
-                    1 -> if (hasAdb) startAdbFormatFlow(device)
-                         else showAdbInstallGuide()
-                }
-            }
+        adbBtn.setOnClickListener {
+            startAdbFormatFlow(device)
+            (dialogView.parent as? ViewGroup)?.removeView(dialogView)
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Format ${device.label}")
+            .setView(dialogView)
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -169,8 +184,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun performQuickWipe(device: StorageDevice) {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Quick Wipe?")
-            .setMessage("Delete all files on ${device.label}? The filesystem will be preserved.")
+            .setTitle("Wipe all files?")
+            .setMessage("Delete all files on ${device.label} without changing the filesystem.")
             .setPositiveButton("Wipe") { _, _ ->
                 lifecycleScope.launch {
                     val pos = adapter.positionForDevice(device)
@@ -189,24 +204,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun startAdbFormatFlow(device: StorageDevice) {
         lifecycleScope.launch {
-            // Step 1: Ensure adb is extracted
             if (!shizukuHelper.extractAdb()) {
                 Snackbar.make(findViewById(android.R.id.content), "Failed to extract adb", Snackbar.LENGTH_LONG).show()
                 return@launch
             }
             adbReady = true
 
-            // Step 2: Check for existing connection
             adbConnected = shizukuHelper.isAdbShellReady
             adbPort = null
 
             if (adbConnected) {
-                // Already connected – format directly
                 showFilesystemPicker(device)
                 return@launch
             }
 
-            // Step 3: Scan for ports
             showOpenDebugSettingsPrompt(device)
         }
     }
@@ -217,14 +228,13 @@ class MainActivity : AppCompatActivity() {
             .setMessage(
                 "1. Open Wireless Debugging in Settings > Developer Options\n" +
                 "2. Tap 'Pair device with pairing code'\n" +
-                "3. Remember the 6-digit code shown\n\n" +
-                "Then come back here and tap Next to scan for the port."
+                "3. Note the 6-digit code\n\n" +
+                "Come back here and tap Next to continue."
             )
             .setPositiveButton("Open Settings") { _, _ ->
                 openWirelessDebuggingSettings()
                 lifecycleScope.launch {
-                    // Wait a moment for settings to open, then scan
-                    kotlinx.coroutines.delay(1000)
+                    delay(1500)
                     scanForPortAndShowCodeDialog(device)
                 }
             }
@@ -237,9 +247,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun openWirelessDebuggingSettings() {
         try {
-            // Open developer options -> wireless debugging
-            val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
         } catch (_: Exception) {
             try {
                 startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
@@ -249,13 +257,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun scanForPortAndShowCodeDialog(device: StorageDevice) {
         lifecycleScope.launch {
-            statusText.text = "Scanning for ADB Wireless Debugging port..."
-            Snackbar.make(findViewById(android.R.id.content), "Scanning for ADB port...", Snackbar.LENGTH_INDEFINITE).show()
+            statusText.text = "Scanning for ADB port..."
+            Snackbar.make(findViewById(android.R.id.content), "Scanning for Wireless Debugging port...", Snackbar.LENGTH_INDEFINITE).show()
 
             adbPort = withContext(Dispatchers.IO) { shizukuHelper.scanForAdb() }
 
             if (adbPort == null) {
-                Snackbar.make(findViewById(android.R.id.content), "ADB port not found. Ensure Wireless Debugging is enabled.", Snackbar.LENGTH_LONG).show()
+                Snackbar.make(findViewById(android.R.id.content), "Port not found. Ensure Wireless Debugging is enabled and try again.", Snackbar.LENGTH_LONG).show()
+                statusText.text = "ADB port scan failed"
                 return@launch
             }
 
@@ -267,11 +276,17 @@ class MainActivity : AppCompatActivity() {
         val input = EditText(this).apply {
             hint = "6-digit pairing code"
             inputType = InputType.TYPE_CLASS_NUMBER
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.on_surface))
+            setHintTextColor(ContextCompat.getColor(this@MainActivity, R.color.on_surface_dim))
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.input_bg)
+            setPadding(16, 16, 16, 16)
+            textSize = 18f
+            typeface = Typeface.MONOSPACE
         }
 
         MaterialAlertDialogBuilder(this)
             .setTitle("Enter Pairing Code")
-            .setMessage("Port ${port.pairing} detected. Enter the 6-digit code from the pairing dialog.")
+            .setMessage("ADB port ${port.pairing} detected. Enter the 6-digit code from the pairing dialog.")
             .setView(input)
             .setPositiveButton("Pair & Format") { _, _ ->
                 val code = input.text.toString().trim()
@@ -286,15 +301,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun performAdbPairing(device: StorageDevice, port: ShizukuFormatHelper.AdbPort, code: String) {
-        statusText.text = "Pairing via ADB..."
-        Snackbar.make(findViewById(android.R.id.content), "Pairing...", Snackbar.LENGTH_INDEFINITE).show()
+        statusText.text = "Pairing..."
+        Snackbar.make(findViewById(android.R.id.content), "Pairing via ADB...", Snackbar.LENGTH_INDEFINITE).show()
 
         val pairResult = withContext(Dispatchers.IO) {
             shizukuHelper.pair(port.pairing, code)
         }
 
         if (!pairResult.success) {
-            AdbResult("Pairing failed. Check the code and try again. ${pairResult.stderr}")
+            showError("Pairing failed. Check the code. ${pairResult.stderr}")
             return
         }
 
@@ -305,17 +320,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (!connectResult.success) {
-            AdbResult("Connection failed. ${connectResult.stderr}")
+            showError("Connection failed. ${connectResult.stderr}")
             return
         }
 
         adbConnected = true
-        Snackbar.make(findViewById(android.R.id.content), "Connected! Ready to format.", Snackbar.LENGTH_SHORT).show()
-
+        Snackbar.make(findViewById(android.R.id.content), "Connected!", Snackbar.LENGTH_SHORT).show()
         showFilesystemPicker(device)
     }
 
-    private fun AdbResult(message: String) {
+    private fun showError(message: String) {
         Snackbar.make(findViewById(android.R.id.content), message, Snackbar.LENGTH_LONG).show()
         statusText.text = "Error"
     }
@@ -323,14 +337,12 @@ class MainActivity : AppCompatActivity() {
     // ─── filesystem picker ─────────────────────────────────────────
 
     private fun showFilesystemPicker(device: StorageDevice) {
+        val options = arrayOf("FAT32", "FAT16")
         MaterialAlertDialogBuilder(this)
-            .setTitle("Select Filesystem")
-            .setMessage("Format ${device.label} to:")
-            .setItems(arrayOf("FAT32 (default)", "FAT16")) { _, which ->
-                val fs = if (which == 0) "FAT32" else "FAT"
-                lifecycleScope.launch {
-                    performAdbFormat(device, fs)
-                }
+            .setTitle("Select filesystem")
+            .setItems(options) { _, which ->
+                val fs = options[which]
+                lifecycleScope.launch { performAdbFormat(device, fs) }
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -341,7 +353,7 @@ class MainActivity : AppCompatActivity() {
     private suspend fun performAdbFormat(device: StorageDevice, filesystem: String) {
         val pos = adapter.positionForDevice(device)
         adapter.setFormatStatus(pos, "Formatting to $filesystem...")
-        statusText.text = "Formatting via adb shell..."
+        statusText.text = "Formatting..."
 
         val result = withContext(Dispatchers.IO) {
             val mountPath = device.mountPath
@@ -359,10 +371,9 @@ class MainActivity : AppCompatActivity() {
 
         adapter.setFormatStatus(pos, null)
         Snackbar.make(findViewById(android.R.id.content), result.message, Snackbar.LENGTH_LONG).show()
-        statusText.text = result.message
+        statusText.text = if (result.success) "Format complete" else "Format failed"
 
         if (result.success) {
-            // Disconnect after formatting
             withContext(Dispatchers.IO) {
                 adbPort?.let { shizukuHelper.disconnect(it.service) }
             }
@@ -370,14 +381,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         refreshDevices()
-    }
-
-    private fun showAdbInstallGuide() {
-        MaterialAlertDialogBuilder(this)
-            .setTitle("ADB Required")
-            .setMessage("The bundled adb binary failed to extract. Please reinstall the app or report this as a bug.")
-            .setPositiveButton("OK", null)
-            .show()
     }
 
     // ─── adapter ──────────────────────────────────────────────────
@@ -389,38 +392,87 @@ class MainActivity : AppCompatActivity() {
         private var items: List<StorageDevice> = emptyList()
         private val formatStatuses = mutableMapOf<Int, String>()
 
-        fun submitList(list: List<StorageDevice>) { items = list; formatStatuses.clear(); notifyDataSetChanged() }
+        fun submitList(list: List<StorageDevice>) {
+            items = list
+            formatStatuses.clear()
+            notifyDataSetChanged()
+        }
+
         fun positionForDevice(device: StorageDevice): Int = items.indexOf(device)
+
         fun setFormatStatus(pos: Int, status: String?) {
             if (pos !in items.indices) return
             if (status != null) formatStatuses[pos] = status else formatStatuses.remove(pos)
             notifyItemChanged(pos)
         }
+
         override fun getItemCount() = items.size
-        override fun onCreateViewHolder(parent: ViewGroup, vt: Int) = ViewHolder(
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(
             LayoutInflater.from(parent.context).inflate(R.layout.item_usb_device, parent, false)
         )
+
         override fun onBindViewHolder(h: ViewHolder, pos: Int) {
             val device = items[pos]
+
             h.label.text = device.label
-            h.info.text = buildString {
-                append(formatSize(device.totalSize))
-                if (device.mountPath != null) append(" · Mounted") else append(" · Unmounted")
-                device.filesystem?.let { append(" · $it") }
+
+            // Status badge
+            val isMounted = device.mountPath != null
+            h.statusBadge.text = if (isMounted) "MOUNTED" else "UNMOUNTED"
+            val badgeBackground = GradientDrawable().apply {
+                cornerRadii = floatArrayOf(4f, 4f, 4f, 4f, 4f, 4f, 4f, 4f)
+                setColor(ContextCompat.getColor(this@MainActivity,
+                    if (isMounted) R.color.primary_container else R.color.outline))
             }
+            h.statusBadge.background = badgeBackground
+            h.statusBadge.setTextColor(ContextCompat.getColor(this@MainActivity,
+                if (isMounted) R.color.primary else R.color.on_surface_dim))
+
+            // Info
+            h.deviceInfo.text = buildString {
+                append(formatSize(device.totalSize))
+                device.filesystem?.let { append("  ·  $it") }
+            }
+
+            // Storage bar
+            val total = device.totalSize
+            val used = device.usedSize
+            if (total > 0 && used >= 0) {
+                val pct = (used.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                val lp = h.storageBarUsed.layoutParams as ConstraintLayout.LayoutParams
+                lp.matchConstraintPercentWidth = pct
+                h.storageBarUsed.layoutParams = lp
+
+                val free = total - used
+                h.sizeLabel.text = "${formatSize(used)} used · ${formatSize(free)} free"
+                h.sizeLabel.visibility = View.VISIBLE
+            } else {
+                h.sizeLabel.text = formatSize(total)
+                h.sizeLabel.visibility = View.VISIBLE
+            }
+
+            // Format status
             val status = formatStatuses[pos]
             if (status != null) {
-                h.formatStatus.visibility = View.VISIBLE; h.formatStatus.text = status
+                h.formatStatus.visibility = View.VISIBLE
+                h.formatStatus.text = status
                 h.formatButton.isEnabled = false
             } else {
-                h.formatStatus.visibility = View.GONE; h.formatButton.isEnabled = true
+                h.formatStatus.visibility = View.GONE
+                h.formatButton.isEnabled = true
             }
+
             h.formatButton.setOnClickListener { onFormatClick(device) }
         }
+
         inner class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val label: TextView = itemView.findViewById(R.id.deviceLabel)
-            val info: TextView = itemView.findViewById(R.id.deviceInfo)
-            val formatButton: Button = itemView.findViewById(R.id.formatButton)
+            val statusBadge: TextView = itemView.findViewById(R.id.statusBadge)
+            val deviceInfo: TextView = itemView.findViewById(R.id.deviceInfo)
+            val storageBarUsed: View = itemView.findViewById(R.id.storageBarUsed)
+            val sizeLabel: TextView = itemView.findViewById(R.id.sizeLabel)
+            val formatButton: MaterialButton = itemView.findViewById(R.id.formatButton)
             val formatStatus: TextView = itemView.findViewById(R.id.formatStatus)
         }
     }
@@ -430,10 +482,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun formatSize(bytes: Long): String {
-        if (bytes <= 0) return "Unknown size"
+        if (bytes <= 0) return "Unknown"
         val units = arrayOf("B", "KB", "MB", "GB", "TB")
         var v = bytes.toDouble(); var i = 0
         while (v >= 1024 && i < units.size - 1) { v /= 1024; i++ }
-        return "%.1f %s".format(v, units[i])
+        return "%.${if (i == 0) 0 else 1}f %s".format(v, units[i])
     }
 }
