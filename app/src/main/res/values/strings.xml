@@ -2,11 +2,16 @@
 <resources>
     <string name="app_name">SD Formatter</string>
     <string name="no_usb_device">No USB storage devices connected.\nPlug in a card reader via OTG.</string>
-    <string name="scanning">Scanning for USB devices…</string>
     <string name="format">Format</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
     <string name="select_filesystem">Select filesystem</string>
-    <string name="fat">FAT</string>
+    <string name="fat">FAT16</string>
     <string name="fat32">FAT32</string>
+    <string name="quick_wipe">Quick Wipe</string>
+    <string name="format_adb">Format via ADB Shell</string>
+    <string name="pairing_code_hint">6-digit pairing code</string>
+    <string name="enable_wireless_debugging">Enable Wireless Debugging</string>
+    <string name="pairing_instructions">1. Open Wireless Debugging in Settings &gt; Developer Options\n2. Tap \'Pair device with pairing code\'\n3. Enter the 6-digit code shown</string>
+    <string name="scanning_adb">Scanning for ADB port…</string>
 </resources>

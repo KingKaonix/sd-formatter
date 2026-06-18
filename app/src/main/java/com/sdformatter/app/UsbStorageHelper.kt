@@ -257,7 +257,7 @@ class UsbStorageHelper(private val context: Context) {
      * Delete all files on the volume (file-level wipe, preserves filesystem).
      * This is the guaranteed non-root fallback.
      */
-    private fun wipeFiles(device: StorageDevice): FormatResult {
+    fun wipeFiles(device: StorageDevice): FormatResult {
         val mountPath = device.mountPath
             ?: return FormatResult(false, "Volume is not mounted. Cannot wipe.")
 
